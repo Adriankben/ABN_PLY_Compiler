@@ -4,14 +4,34 @@
 # This source code is licensed under the Apache-style license found in the
 # LICENSE file in the root directory of this source tree. 
 
+import sys
 import ply.lex as lex
 import ply.yacc as yacc
+import winsound
+
+
+print("!-------------------------------------------!")
+print("|- - - - - - - - - - - - - - - - - - - - - -|")
+print("|  Welcome to the ABN Programming Language  |")
+print("|- - - - - - - - - - - - - - - - - - - - - -|")
+print("!-------------------------------------------!\n")
+
+
+def play_error_sound():
+    frequency = 1000  # frequency in hertz
+    duration = 500  # duration in milliseconds
+    winsound.Beep(frequency, duration)
+
+
+def goodbye():
+    print("Thanks for using my program! Goodbye!")
 
 
 reserved = {
     'if': 'IF',
     'then': 'THEN',
-    'else': 'ELSE'
+    'else': 'ELSE',
+    'leave': 'LEAVE'
 }
 
 # List of token names.
@@ -20,6 +40,7 @@ tokens = [
              'FLOAT',
              'IDENTIFIER',
              'STRING',
+             'COMMENT',
              'PLUS',
              'MINUS',
              'TIMES',
@@ -34,11 +55,10 @@ tokens = [
              'RPAREN',
              'LBRACE',
              'RBRACE'
-
          ] + list(reserved.values())
 
-#  Regular expression rules for simple tokens
-# t_ indicates a token (prefix it with r or R to make a raw string) escape character treated as a literal
+
+#  Regular expression rules for simple tokens t_ indicates a token (prefix it with r)
 t_LPAREN = r'\('
 t_RPAREN = r'\)'
 t_PLUS = r'\+'
@@ -55,7 +75,6 @@ t_LBRACE = r'\{'
 t_RBRACE = r'\}'
 
 
-# A regular expression rule with some action code
 def t_FLOAT(t):
     r'[-+]?[0-9]*\.[0-9]+'
     # String to float
@@ -76,8 +95,7 @@ def t_IDENTIFIER(t):
     return t
 
 
-# matches a string enclosed in double quotes, including the quotation marks,
-# where the quoted string cannot contain any embedded double quotes
+# matches a string enclosed in double quotes, including the quotation marks
 def t_STRING(t):
     r'"[^"]*\"'
     t.type = 'STRING'
@@ -92,11 +110,11 @@ def t_newline(t):
     t.lexer.lineno += len(t.value)
 
 
-# String preceeded by a #
+# String preceded by a '#'
 def t_comment(t):
     r'\#.*'
-    pass
-    # No return value. Token discarded
+    t.type = 'COMMENT'
+    return t
 
 
 # A string containing ignored characters (spaces and tabs)
@@ -113,31 +131,10 @@ def t_error(t):
 lexer = lex.lex()
 
 
-# code = '''
-# x = 1
-# v = 0
-# if (x == 1) then { v = x + 4 } else { x - 6 }
-# '''
-
-
-# Give the lexer some input
-# lexer.input(code)
-
-
-# Tokenize
-while True:
-    tok = lexer.token()
-    if not tok:
-        break  # No more input
-    print(tok)
-
-
 # Remove ambiguity from grammar
 # youtube and https://my.eng.utah.edu/~cs3100/lectures/l14/ply-3.4/doc/ply.html
-# PLUS      : level = 1,  assoc = 'left'
-# MINUS     : level = 1,  assoc = 'left'
-# TIMES     : level = 2,  assoc = 'left'
-# DIVIDE    : level = 2,  assoc = 'left'
+# PLUS | MINUS : level = 1,  assoc = 'left'
+# TIMES | DIVIDE : level = 2,  assoc = 'left'
 precedence = (
     ('left', 'PLUS', 'MINUS'),
     ('left', 'TIMES', 'DIVIDE'),
@@ -148,32 +145,68 @@ precedence = (
 
 def p_abn(p):
     '''
-    abn : statement
+    abn : comment
+        | statement
         | condition
         | expr
         | var_assign
+        | display_string
+        | display
+        | endp
         | empty
     '''
-    # run
     print(run(p[1]))
-    print(p[1])
+
+
+def p_comment(p):
+    '''
+    comment : COMMENT
+    '''
+    p[0] = p[1]
+
+
+def p_display(p):
+    '''
+    display_string : STRING
+    '''
+    p[0] = p[1]
+
+
+def p_display1(p):
+    '''
+    display : STRING IDENTIFIER
+    '''
+    p[0] = ('show', p[1], p[2])
+
+
+def p_endp(p):
+    '''
+    endp : LEAVE
+    '''
+    p[0] = p[1]
 
 
 def p_statement_if_else(p):
     '''
     statement : IF LPAREN condition RPAREN THEN LBRACE expr RBRACE ELSE LBRACE expr RBRACE
                 | IF LPAREN condition RPAREN THEN LBRACE expr RBRACE ELSE LBRACE var_assign RBRACE
+                | IF LPAREN condition RPAREN THEN LBRACE expr RBRACE ELSE LBRACE display RBRACE
                 | IF LPAREN condition RPAREN THEN LBRACE var_assign RBRACE ELSE LBRACE expr RBRACE
                 | IF LPAREN condition RPAREN THEN LBRACE var_assign RBRACE ELSE LBRACE var_assign RBRACE
+                | IF LPAREN condition RPAREN THEN LBRACE var_assign RBRACE ELSE LBRACE display RBRACE
+                | IF LPAREN condition RPAREN THEN LBRACE display RBRACE ELSE LBRACE display RBRACE
+                | IF LPAREN condition RPAREN THEN LBRACE display RBRACE ELSE LBRACE expr RBRACE
+                | IF LPAREN condition RPAREN THEN LBRACE display RBRACE ELSE LBRACE var_assign RBRACE
     '''
     p[0] = ('if-else', p[3], p[7], p[11])
-
 
 
 def p_statement_if(p):
     '''
     statement : IF LPAREN condition RPAREN THEN expr
             | IF LPAREN condition RPAREN THEN var_assign
+            | IF LPAREN condition RPAREN THEN display
+
     '''
     p[0] = ('if', p[3], p[6])
 
@@ -192,7 +225,7 @@ def p_condition(p):
 def p_var_assign(p):
     '''
     var_assign : IDENTIFIER EQUALS expr
-                | IDENTIFIER EQUALS STRING
+            | IDENTIFIER EQUALS STRING
     '''
     p[0] = ('=', p[1], p[3])
 
@@ -237,22 +270,24 @@ def p_empty(p):
 
 # Error rule for syntax errors
 def p_error(p):
+    play_error_sound()
     if p:
         print("Syntax error in input at '%s'" % p.value)
     else:
         print("Syntax error at EOF")
 
 
-parser = yacc.yacc()
-
-
 # dictionary for variables
 env = {}
+parser = yacc.yacc()
 
 
 def run(p):
     global env
-    if type(p) == tuple:
+    if p == 'leave':
+        goodbye()
+        sys.exit()
+    elif type(p) == tuple:
         try:
             if p[0] == '+':
                 return run(p[1]) + run(p[2])
@@ -278,47 +313,51 @@ def run(p):
             elif p[0] == '=':
                 # assign value to key in dic value to identifier
                 env[p[1]] = run(p[2])
-                # print whole dictionary of variables
-                # print(env)
             # if there is a var we retrieve it from dic to use in expr
             elif p[0] == 'var':
                 # if variable is not in the dict tell user
                 if p[1] not in env:
                     print("Undeclared variable")
+                    play_error_sound()
                 else:
                     return env[p[1]]
             elif p[0] == 'if-else':
-                # print("This is p1", p[1])
-                # print("This is p2", p[2])
-                # print("This is p2", p[3])
-                # print("This run(p[2])", run(p[1]))
-                # print("This run(p[2])", run(p[1]))
-                # print("This run(p[2])", run(p[1]))
                 if bool(run(p[1])):
                     run(p[2])
                 else:
                     run(p[3])
             elif p[0] == 'if':
-                # print("This is p1", p[1])
-                # print("This is p2", p[2])
-                # print("This run(p[1])", run(p[1]))
                 if bool(run(p[1])):
                     run(p[2])
+            elif p[0] == 'show':
+                print(p[1], env[p[2]])
         except TypeError as e:
             print("TypeError ", str(e))
+            play_error_sound()
     else:
         return p
 
 
-# Test parser using code line 107
-# parsed_code = parser.parse(code)
-# print(parsed_code)
 while True:
     try:
         # Accept user input, give interpreter look
-        s = input('abn>> ')
+        s = input('abn>>> ')
     # end
     except EOFError:
+        print("EOF Error")
+        play_error_sound()
         break
     if not s: continue
     result = parser.parse(s)
+
+# h = '''
+# d = "I'm an APL student"
+# x = 145 + -38.5
+# '''
+# lexer.input(h)
+# # Tokenize
+# while True:
+#     tok = lexer.token()
+#     if not tok:
+#         break  # No more input
+#     print(tok)
